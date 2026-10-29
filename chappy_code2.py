@@ -16,7 +16,7 @@ from pymeasure.instruments.agilent import AgilentB1500
 
 
 I_START = 90e-6
-I_STOP = 150e-6
+I_STOP = 110e-6
 I_STEP = 10e-6
 
 #when sourcing current, compliance side measurement is voltage
@@ -24,7 +24,7 @@ V_COMPLIANCE = 2.0
 
 SAMPLE_COUNT = 3
 SAMPLE_INTERVAL = 0.1
-SETTLING_TIME = 1.0
+SETTLING_TIME = 100*10**-3
 
 def main():
     GPIB_ADDRESS = "GPIB1::17::INSTR"
@@ -127,9 +127,9 @@ def run_measurement(
             
             b1500.check_idle()
             
-            data = b1500.read_data(sample_count).to_numpy().T
-            voltages = data[1,:]
-            t = data[0,:]
+            data = b1500.read_data(sample_count).to_numpy()
+            voltages = data[:,1]
+            t = data[:,0]
             mean_v = np.mean(voltages)
             resistance = mean_v / current
             print(f"Average voltage: {mean_v:.4g} V")
@@ -142,7 +142,7 @@ def run_measurement(
                 "status": "OK",
                 "error": ""
             })
-            new = np.column_stack((voltages, t))
+            new = np.column_stack((t, voltages))
             t_series = np.vstack((t_series, new))
             
     except Exception:

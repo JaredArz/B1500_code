@@ -17,17 +17,17 @@ from pymeasure.instruments.agilent import AgilentB1500
 # uses these in this exact configuration, no safety checks
 # run query.py to validate this.
 
-V_START = 90e-6
-V_STOP = 110e-6
-V_STEP = 10e-6
+V_START = 1.3
+V_STOP = 1.4
+V_STEP = 0.01 #step should be <= 10mV
 
-I_COMPLIANCE = 200*10**-6
+I_COMPLIANCE = 100*10**-6 #measurement side
 
 SAMPLE_COUNT    = 3
 SAMPLE_INTERVAL = 0.1
 SETTLING_TIME   = 100*10**-3
 
-DUT = "S2_1"
+DUT = "test"
 SAVE_PATH = f"./260509-A1_data/{DUT}/"
 
 def main():
@@ -49,6 +49,7 @@ def main():
         n_steps
     )
 
+
     results, t_series = run_measurement(
         b1500=b1500,
         voltages=voltages,
@@ -67,11 +68,10 @@ def run_measurement(
     sample_count,
     sample_interval,
     settling_time,
-    ramp_pause=25e-3,
-    ramp_step = 10**-6,
+    ramp_pause= 50e-3,
+    ramp_step = 5*10**-3,
 ):
-    V_compliance = 1
-    I_compliance = 10**-6
+    V_compliance = 0.5
 
     b1500.initialize_all_smus()
     b1500.data_format(21, mode=0)
@@ -81,15 +81,14 @@ def run_measurement(
 
     input("Measurement is initializing, please double check hardware")
 
-    b1500.meas_mode("SAMPLING", [smu_force, smu_sense])
+    b1500.meas_mode("SAMPLING", smu_force, smu_sense)
 
-    #FIXME
     for smu in [smu_force, smu_sense]:
         smu.enable()
         smu.adc_type = "HRADC"
         smu.meas_op_mode = "COMPLIANCE_SIDE"
 
-    #FIXME
+
     smu_force.meas_range_current = "1 uA"
     smu_sense.meas_range_voltage = "5 V"
     b1500.sampling_mode = "LINEAR"
@@ -107,37 +106,39 @@ def run_measurement(
     results = []
     t_series = np.empty((0,2))
     input("Measurement is ready to start, please double check hardware")
-
-    smu_sense.sampling_source(
-        "CURRENT",
-        "Auto Ranging",
-        0,
-        0,
-        V_compliance
-    )
-
-    smu_force.ramp_source(
-        "VOLTAGE",
-        "Auto Ranging",
-        voltages[0] - abs(voltages[1]-voltages[0]),
-        stepsize=ramp_step,
-        pause=ramp_pause,
-        comp = I_compliance
-    ) 
-
     try:
+        smu_sense.sampling_source(
+            "CURRENT",
+            "Auto Ranging",
+            0,
+            0,
+            V_compliance
+        )
+        
+        voltage = voltages[0]
+        smu_force.ramp_source(
+            "VOLTAGE",
+            "Auto Ranging",
+            voltage,
+            stepsize=ramp_step,
+            pause=ramp_pause,
+            comp = I_compliance
+        ) 
+
         for voltage in voltages:
             print(f"Measuring voltage at: {voltage:.4g} V")
             #type, range, base, bias, compliance (base and bias are same for constant measurement)
         
+            
             smu_force.sampling_source(
-                "Voltage",
+                "VOLTAGE",
                 "Auto Ranging",
                 voltage,
                 voltage,
                 I_compliance
             )
             
+
             time.sleep(settling_time)
             b1500.check_errors()
             b1500.clear_buffer()
@@ -146,11 +147,9 @@ def run_measurement(
             
             b1500.check_idle()
             
-            data = b1500.read_data(sample_count).to_numpy()
-            #FIXME
-            print(data)
-            vout = data[:,1]
-            t = data[:,0]
+            data = b1500.read_data(sample_count*2).to_numpy()
+            vout = data[:,1][1::2]
+            t = data[:,0][1::2]
             mean_vout = np.mean(vout)
             print(f"Average voltage out: {mean_vout:.4g} V")
 
@@ -174,14 +173,22 @@ def run_measurement(
             "error": error_message
         })
     finally:
-        time.sleep(1)
-        smu_force.ramp_source(
-            "Voltage",
-            "Auto Ranging",
+        ramp_down = np.round(np.linspace(
+            voltage,
             0,
-            stepsize=ramp_step,
-            pause=ramp_pause
-        ) 
+            int(voltage/(ramp_step))
+        ),decimals=4)
+        time.sleep(1)
+        for v in ramp_down:
+            smu_force.force(
+                "Voltage",
+                "Auto Ranging",
+                v,
+                comp=I_compliance
+            ) 
+            time.sleep(ramp_pause*2)
+        print("che")
+        b1500.check_idle()
         input("Measurement is complete and current is ramped down, please double check hardware")
         smu_sense.disable()
         smu_force.disable()
@@ -200,7 +207,7 @@ def save_csv(filename, results, t_series):
 
         for result in results:
             writer.writerow([
-                np.asarray(result["Vin"])*10**6,
+                np.asarray(result["Vin"]),
                 result["mean_Vout"],
                 result["status"],
                 result["error"]

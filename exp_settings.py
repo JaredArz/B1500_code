@@ -1,0 +1,8 @@
+
+GPIB_ADDRESS = "GPIB1::17::INSTR"
+SAMPLE_COUNT = 3
+SAMPLE_INTERVAL = 0.1
+# a hold before measuring
+SETTLING_TIME = 100*10**-3
+DUT = "S2_1"
+SAVE_PATH = f"./260509-A1_data/{DUT}/"

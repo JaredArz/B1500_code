@@ -5,6 +5,7 @@ import time
 import traceback
 import warnings
 from datetime import datetime
+from exp_settings import *
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 #needs pandas 2.3.3
@@ -18,27 +19,19 @@ from pymeasure.instruments.agilent import AgilentB1500
 
 I_START = 90e-6
 I_STOP = 110e-6
-I_STEP = 10e-6
-
+I_STEP = 1e-6
 #when sourcing current, compliance side measurement is voltage
-V_COMPLIANCE = 2.0
+V_COMPLIANCE = 1.0
 
-SAMPLE_COUNT = 3
-SAMPLE_INTERVAL = 0.1
-SETTLING_TIME = 100*10**-3
-
-DUT = "S2_1"
-SAVE_PATH = f"./260509-A1_data/{DUT}/"
+HEADER = ["current", "mean_v", "resistance", "status", "error"]
 
 def main():
-    GPIB_ADDRESS = "GPIB1::17::INSTR"
-
     b1500 = AgilentB1500(
         GPIB_ADDRESS,
         timeout = 100000
     )
 
-    smu = "SMU2" #HRSMU
+    smu = "SMU2" #HRSMU, only SMU2 works for now
 
     os.makedirs(SAVE_PATH, exist_ok=True)
     now = datetime.now()
@@ -71,19 +64,16 @@ def run_measurement(
     sample_count,
     sample_interval,
     settling_time,
-    ramp_pause=25e-3,
-    ramp_step = 10**-6,
+    ramp_pause=50e-3,
+    ramp_step = 1**-6,
 ):
     b1500.initialize_all_smus()
     b1500.data_format(21, mode=0)
-    if smu == "SMU2":
-        smu = list(b1500.smu_references)[1]
-    else:
-        raise NotImplementedError("Only SMU2 works for now")
 
-    input("Measurement is initializing, please double check hardware")
+    input("Measurement is ready to start, please double check hardware")
+    print("Configuring...")
+
     b1500.meas_mode("SAMPLING", smu)
-
     smu.enable()
     smu.adc_type = "HRADC"
     smu.meas_range_voltage = "2 V"
@@ -102,22 +92,21 @@ def run_measurement(
     
     results = []
     t_series = np.empty((0,2))
-    input("Measurement is ready to start, please double check hardware")
-    #may need to be b1500.smu2....
-    smu.ramp_source(
-        "CURRENT",
-        "Auto Ranging",
-        currents[0] - abs(currents[1]-currents[0]),
-        stepsize=ramp_step,
-        pause=ramp_pause,
-        comp = V_compliance
-    ) 
 
     try:
+        #may need to be b1500.smu2....
+        smu.ramp_source(
+            "CURRENT",
+            "Auto Ranging",
+            currents[0],
+            stepsize=ramp_step,
+            pause=ramp_pause,
+            comp = V_compliance
+        ) 
         for current in currents:
             print(f"Measuring voltage at: {current:.4g} A")
+
             #type, range, base, bias, compliance (base and bias are same for constant measurement)
-        
             smu.sampling_source(
                 "CURRENT",
                 "Auto Ranging",
@@ -141,13 +130,12 @@ def run_measurement(
             resistance = mean_v / current
             print(f"Average voltage: {mean_v:.4g} V")
             print(f"Resistance:      {resistance:.8g} Ohm")
-
             results.append({
-                "current": current,
-                "mean_voltage": mean_v,
-                "resistance": resistance,
-                "status": "OK",
-                "error": ""
+                HEADER[0]: current,
+                HEADER[1]: mean_v,
+                HEADER[2]: resistance,
+                HEADER[3]: "OK",
+                HEADER[4]: "",
             })
             new = np.column_stack((t, voltages))
             t_series = np.vstack((t_series, new))
@@ -157,14 +145,14 @@ def run_measurement(
         print("Measurement terminated due to an error:")
         print(error_message)
         results.append({
-            "current": np.nan,
-            "mean_voltage": np.nan,
-            "resistance": np.nan,
-            "status": "FAILED",
-            "error": error_message
+            HEADER[0]: np.nan,
+            HEADER[1]: np.nan,
+            HEADER[2]: np.nan,
+            HEADER[3]: "FAILED",
+            HEADER[4]: error_message
         })
     finally:
-        time.sleep(1)
+        time.sleep(0.5)
         smu.ramp_source(
             "CURRENT",
             "Auto Ranging",
@@ -178,32 +166,26 @@ def run_measurement(
     return results, t_series
 
 def save_csv(filename, results, t_series):
-    with open(filename + ".csv", "w", newline="") as file:
-        writer = csv.writer(file)
-        writer.writerow([
-            "current_uA",
-            "mean_voltage_V",
-            "resistance_Ohm",
-            "status",
-            "error"
-        ])
+    data = np.array([
+        [r[HEADER[0]], r[HEADER[1]], r[HEADER[2]], r[HEADER[3]], r[HEADER[4]]]
+        for r in results
+    ], dtype=object)
 
-        for result in results:
-            writer.writerow([
-                np.asarray(result["current"])*10**6,
-                result["mean_voltage"],
-                result["resistance"],
-                result["status"],
-                result["error"]
-            ])
     np.savetxt(
-        f"{filename}_t.csv",
+        filename + ".csv",
+        data,
+        delimiter=",",
+        header=f"{HEADER[0]},{HEADER[1]},{HEADER[2]},{HEADER[3]},{HEADER[4]}",
+        comments="",
+        fmt="%s"
+    )
+    np.savetxt(
+        filename + "_t.csv",
         t_series,
         delimiter=",",
-        header = "t,voltage",
-        comments = ""
+        header="t,Vout",
+        comments=""
     )
-
     print(f"Measurement data saved to: {filename}")
 
 if __name__ == "__main__":

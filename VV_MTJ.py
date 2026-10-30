@@ -1,8 +1,10 @@
 import numpy as np
+import os
 import csv
 import time
 import traceback
 import warnings
+from datetime import datetime
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 #needs pandas 2.3.3
@@ -12,19 +14,21 @@ from pymeasure.instruments.agilent import AgilentB1500
 # B1500 (right, GPIB1), is configured with:
 # SMU2: HRSMU
 # SMU3: MPSMU
+# uses these in this exact configuration, no safety checks
 # run query.py to validate this.
 
+V_START = 90e-6
+V_STOP = 110e-6
+V_STEP = 10e-6
 
-I_START = 90e-6
-I_STOP = 110e-6
-I_STEP = 10e-6
+I_COMPLIANCE = 200*10**-6
 
-#when sourcing current, compliance side measurement is voltage
-V_COMPLIANCE = 2.0
-
-SAMPLE_COUNT = 3
+SAMPLE_COUNT    = 3
 SAMPLE_INTERVAL = 0.1
-SETTLING_TIME = 100*10**-3
+SETTLING_TIME   = 100*10**-3
+
+DUT = "S2_1"
+SAVE_PATH = f"./260509-A1_data/{DUT}/"
 
 def main():
     GPIB_ADDRESS = "GPIB1::17::INSTR"
@@ -34,22 +38,21 @@ def main():
         timeout = 100000
     )
 
-    smu = "SMU2" #HRSMU
+    os.makedirs(SAVE_PATH, exist_ok=True)
+    now = datetime.now()
+    OUTPUT_FILE = SAVE_PATH + f"{DUT}_VV_{now.strftime("%y%m%d_%H%M")}"
 
-    OUTPUT_FILE = "mtj_measurement.csv"
-
-    n_steps = int(round((I_STOP - I_START) / I_STEP)) + 1
-    currents = np.linspace(
-        I_START,
-        I_START + (n_steps - 1) * I_STEP,
+    n_steps = int(round((V_STOP - V_START) / V_STEP)) + 1
+    voltages = np.linspace(
+        V_START,
+        V_START + (n_steps - 1) * V_STEP,
         n_steps
     )
 
     results, t_series = run_measurement(
         b1500=b1500,
-        smu=smu,
-        currents=currents,
-        V_compliance=V_COMPLIANCE,
+        voltages=voltages,
+        I_compliance=I_COMPLIANCE,
         sample_count=SAMPLE_COUNT,
         sample_interval=SAMPLE_INTERVAL,
         settling_time=SETTLING_TIME
@@ -59,29 +62,36 @@ def main():
 
 def run_measurement(
     b1500,
-    smu,
-    currents,
-    V_compliance,
+    voltages,
+    I_compliance,
     sample_count,
     sample_interval,
     settling_time,
     ramp_pause=25e-3,
     ramp_step = 10**-6,
 ):
+    V_compliance = 1
+    I_compliance = 10**-6
+
     b1500.initialize_all_smus()
     b1500.data_format(21, mode=0)
-    if smu == "SMU2":
-        smu = list(b1500.smu_references)[1]
-    else:
-        raise NotImplementedError("Only SMU2 works for now")
+
+    smu_force = list(b1500.smu_references)[2]
+    smu_sense = list(b1500.smu_references)[1] #HRSMU
 
     input("Measurement is initializing, please double check hardware")
-    b1500.meas_mode("SAMPLING", smu)
 
-    smu.enable()
-    smu.adc_type = "HRADC"
-    smu.meas_range_voltage = "2 V"
-    smu.meas_op_mode = "COMPLIANCE_SIDE"
+    b1500.meas_mode("SAMPLING", [smu_force, smu_sense])
+
+    #FIXME
+    for smu in [smu_force, smu_sense]:
+        smu.enable()
+        smu.adc_type = "HRADC"
+        smu.meas_op_mode = "COMPLIANCE_SIDE"
+
+    #FIXME
+    smu_force.meas_range_current = "1 uA"
+    smu_sense.meas_range_voltage = "5 V"
     b1500.sampling_mode = "LINEAR"
     b1500.adc_setup("HRADC", "AUTO", 6)
 
@@ -97,26 +107,35 @@ def run_measurement(
     results = []
     t_series = np.empty((0,2))
     input("Measurement is ready to start, please double check hardware")
-    b1500.smu2.ramp_source(
+
+    smu_sense.sampling_source(
         "CURRENT",
         "Auto Ranging",
-        currents[0] - abs(currents[1]-currents[0]),
+        0,
+        0,
+        V_compliance
+    )
+
+    smu_force.ramp_source(
+        "VOLTAGE",
+        "Auto Ranging",
+        voltages[0] - abs(voltages[1]-voltages[0]),
         stepsize=ramp_step,
         pause=ramp_pause,
-        comp = V_compliance
+        comp = I_compliance
     ) 
 
     try:
-        for current in currents:
-            print(f"Measuring voltage at: {current:.4g} A")
+        for voltage in voltages:
+            print(f"Measuring voltage at: {voltage:.4g} V")
             #type, range, base, bias, compliance (base and bias are same for constant measurement)
         
-            smu.sampling_source(
-                "CURRENT",
+            smu_force.sampling_source(
+                "Voltage",
                 "Auto Ranging",
-                current,
-                current,
-                V_compliance
+                voltage,
+                voltage,
+                I_compliance
             )
             
             time.sleep(settling_time)
@@ -128,21 +147,20 @@ def run_measurement(
             b1500.check_idle()
             
             data = b1500.read_data(sample_count).to_numpy()
-            voltages = data[:,1]
+            #FIXME
+            print(data)
+            vout = data[:,1]
             t = data[:,0]
-            mean_v = np.mean(voltages)
-            resistance = mean_v / current
-            print(f"Average voltage: {mean_v:.4g} V")
-            print(f"Resistance:      {resistance:.8g} Ohm")
+            mean_vout = np.mean(vout)
+            print(f"Average voltage out: {mean_vout:.4g} V")
 
             results.append({
-                "current": current,
-                "mean_voltage": mean_v,
-                "resistance": resistance,
+                "Vin": voltage,
+                "mean_Vout": mean_vout,
                 "status": "OK",
                 "error": ""
             })
-            new = np.column_stack((t, voltages))
+            new = np.column_stack((t, vout))
             t_series = np.vstack((t_series, new))
             
     except Exception:
@@ -150,51 +168,48 @@ def run_measurement(
         print("Measurement terminated due to an error:")
         print(error_message)
         results.append({
-            "current": np.nan,
-            "mean_voltage": np.nan,
-            "std_voltage": np.nan,
-            "resistance": np.nan,
+            "Vin": np.nan,
+            "mean_Vout": np.nan,
             "status": "FAILED",
             "error": error_message
         })
     finally:
         time.sleep(1)
-        b1500.smu2.ramp_source(
-            "CURRENT",
+        smu_force.ramp_source(
+            "Voltage",
             "Auto Ranging",
             0,
             stepsize=ramp_step,
             pause=ramp_pause
         ) 
         input("Measurement is complete and current is ramped down, please double check hardware")
-        smu.disable()
+        smu_sense.disable()
+        smu_force.disable()
 
     return results, t_series
 
 def save_csv(filename, results, t_series):
-    with open(filename, "w", newline="") as file:
+    with open(filename + ".csv", "w", newline="") as file:
         writer = csv.writer(file)
         writer.writerow([
-            "Current_uA",
-            "Mean_Voltage_V",
-            "Resistance_Ohm",
+            "Vin",
+            "mean_Vout",
             "Status",
             "Error"
         ])
 
         for result in results:
             writer.writerow([
-                np.asarray(result["current"])*10**6,
-                result["mean_voltage"],
-                result["resistance"],
+                np.asarray(result["Vin"])*10**6,
+                result["mean_Vout"],
                 result["status"],
                 result["error"]
             ])
     np.savetxt(
-        f"{filename}_tseries.csv",
+        f"{filename}_t.csv",
         t_series,
         delimiter=",",
-        header = "t,voltage",
+        header = "t,Vout",
         comments = ""
     )
 

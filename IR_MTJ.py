@@ -1,6 +1,5 @@
 import numpy as np
 import os
-import csv
 import time
 import traceback
 import warnings
@@ -16,12 +15,13 @@ from pymeasure.instruments.agilent import AgilentB1500
 # SMU2: HRSMU
 # SMU3: MPSMU
 # run query.py to validate this.
+# HRSMU, only SMU2 works for now
 
-I_START = 90e-6
-I_STOP = 110e-6
-I_STEP = 1e-6
+I_START = -170e-6
+I_STOP = -180e-6
+I_STEP = -0.5e-6
 #when sourcing current, compliance side measurement is voltage
-V_COMPLIANCE = 1.0
+V_COMPLIANCE = 3.6
 
 HEADER = ["current", "mean_v", "resistance", "status", "error"]
 
@@ -30,8 +30,6 @@ def main():
         GPIB_ADDRESS,
         timeout = 100000
     )
-
-    smu = "SMU2" #HRSMU, only SMU2 works for now
 
     os.makedirs(SAVE_PATH, exist_ok=True)
     now = datetime.now()
@@ -46,7 +44,6 @@ def main():
 
     results, t_series = run_measurement(
         b1500=b1500,
-        smu=smu,
         currents=currents,
         V_compliance=V_COMPLIANCE,
         sample_count=SAMPLE_COUNT,
@@ -58,18 +55,19 @@ def main():
 
 def run_measurement(
     b1500,
-    smu,
     currents,
     V_compliance,
     sample_count,
     sample_interval,
     settling_time,
     ramp_pause=50e-3,
-    ramp_step = 1**-6,
+    ramp_step = 1e-6,
 ):
+    if currents[0] < 0:
+        ramp_step *= -1
     b1500.initialize_all_smus()
     b1500.data_format(21, mode=0)
-
+    smu = list(b1500.smu_references)[1] #HRSMU
     input("Measurement is ready to start, please double check hardware")
     print("Configuring...")
 
@@ -95,7 +93,8 @@ def run_measurement(
 
     try:
         #may need to be b1500.smu2....
-        smu.ramp_source(
+        print("Ramping current...")
+        b1500.smu2.ramp_source(
             "CURRENT",
             "Auto Ranging",
             currents[0],
@@ -114,16 +113,18 @@ def run_measurement(
                 current,
                 V_compliance
             )
-            
+           
             time.sleep(settling_time)
+            
             b1500.check_errors()
             b1500.clear_buffer()
             b1500.clear_timer()
             b1500.send_trigger()
             
             b1500.check_idle()
-            
+
             data = b1500.read_data(sample_count).to_numpy()
+   
             voltages = data[:,1]
             t = data[:,0]
             mean_v = np.mean(voltages)
@@ -134,7 +135,7 @@ def run_measurement(
                 HEADER[0]: current,
                 HEADER[1]: mean_v,
                 HEADER[2]: resistance,
-                HEADER[3]: "OK",
+                HEADER[3]: "OK ",
                 HEADER[4]: "",
             })
             new = np.column_stack((t, voltages))
@@ -153,7 +154,7 @@ def run_measurement(
         })
     finally:
         time.sleep(0.5)
-        smu.ramp_source(
+        b1500.smu2.ramp_source(
             "CURRENT",
             "Auto Ranging",
             0,

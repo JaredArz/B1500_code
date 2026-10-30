@@ -17,9 +17,9 @@ from pymeasure.instruments.agilent import AgilentB1500
 # uses these in this exact configuration, no safety checks
 # run query.py to validate this.
 
-V_START = 1.3
-V_STOP = 1.4
-V_STEP = 10e-3 #step should be <= 10mV
+V_START = 1.56
+V_STOP = 1.6
+V_STEP = 2.5e-3 #step should be <= 10mV
 
 I_COMPLIANCE = 100*10**-6 #measurement side
 
@@ -74,17 +74,17 @@ def run_measurement(
     smu_sense = list(b1500.smu_references)[1] #HRSMU
 
     input("Measurement is ready to start, please double check hardware")
-    print(f"Configuring...")
+    print("Configuring...")
 
     b1500.meas_mode("SAMPLING", smu_force, smu_sense)
     for smu in [smu_force, smu_sense]:
         smu.enable()
-        smu.adc_type = "HRADC"
+        smu.adc_type = "HSADC"
         smu.meas_op_mode = "COMPLIANCE_SIDE"
     smu_force.meas_range_current = "1 uA"
     smu_sense.meas_range_voltage = "5 V"
     b1500.sampling_mode = "LINEAR"
-    b1500.adc_setup("HRADC", "AUTO", 6)
+    b1500.adc_setup("HSADC", "AUTO", 1)
     b1500.sampling_timing(
         settling_time,
         sample_interval,
@@ -105,6 +105,7 @@ def run_measurement(
         )
         
         voltage = voltages[0]
+        print("Ramping voltage...")
         smu_force.ramp_source(
             "VOLTAGE",
             "Auto Ranging",
@@ -173,12 +174,12 @@ def run_measurement(
             ) 
             time.sleep(ramp_pause*2)
         b1500.check_idle()
-        input("Measurement is complete and current is ramped down, please double check hardware")
+        input("Measurement is complete and voltage is ramped down, please double check hardware")
         smu_sense.disable()
         smu_force.disable()
     return results, t_series
 
-def save_csv(filename, resuls, t_series):
+def save_csv(filename, results, t_series):
     data = np.array([
         [r[HEADER[0]], r[HEADER[1]], r[HEADER[2]], r[HEADER[3]]]
         for r in results

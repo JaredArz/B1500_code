@@ -21,7 +21,7 @@ I_STOP = 110e-6
 I_STEP = 10e-6
 
 #when sourcing current, compliance side measurement is voltage
-V_COMPLIANCE = 1.0
+V_COMPLIANCE = 2.0
 
 SAMPLE_COUNT = 3
 SAMPLE_INTERVAL = 0.1
@@ -42,7 +42,7 @@ def main():
 
     os.makedirs(SAVE_PATH, exist_ok=True)
     now = datetime.now()
-    OUTPUT_FILE = f"{DUT}_IR_{now.strftime("%y%m%d_%H%M")}.csv"
+    OUTPUT_FILE = SAVE_PATH + f"{DUT}_IR_{now.strftime("%y%m%d_%H%M")}"
 
     n_steps = int(round((I_STOP - I_START) / I_STEP)) + 1
     currents = np.linspace(
@@ -178,7 +178,7 @@ def run_measurement(
     return results, t_series
 
 def save_csv(filename, results, t_series):
-    with open(filename, "w", newline="") as file:
+    with open(filename + ".csv", "w", newline="") as file:
         writer = csv.writer(file)
         writer.writerow([
             "Current_uA",

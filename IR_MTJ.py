@@ -103,7 +103,8 @@ def run_measurement(
     results = []
     t_series = np.empty((0,2))
     input("Measurement is ready to start, please double check hardware")
-    b1500.smu2.ramp_source(
+    #may need to be b1500.smu2....
+    smu.ramp_source(
         "CURRENT",
         "Auto Ranging",
         currents[0] - abs(currents[1]-currents[0]),
@@ -158,14 +159,13 @@ def run_measurement(
         results.append({
             "current": np.nan,
             "mean_voltage": np.nan,
-            "std_voltage": np.nan,
             "resistance": np.nan,
             "status": "FAILED",
             "error": error_message
         })
     finally:
         time.sleep(1)
-        b1500.smu2.ramp_source(
+        smu.ramp_source(
             "CURRENT",
             "Auto Ranging",
             0,
@@ -181,11 +181,11 @@ def save_csv(filename, results, t_series):
     with open(filename + ".csv", "w", newline="") as file:
         writer = csv.writer(file)
         writer.writerow([
-            "Current_uA",
-            "Mean_Voltage_V",
-            "Resistance_Ohm",
-            "Status",
-            "Error"
+            "current_uA",
+            "mean_voltage_V",
+            "resistance_Ohm",
+            "status",
+            "error"
         ])
 
         for result in results:

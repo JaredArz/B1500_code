@@ -4,7 +4,16 @@ import time
 import traceback
 import warnings
 from datetime import datetime
-from exp_settings import *
+from exp_settings import (
+    GPIB_ADDRESS,
+    TIMEOUT,
+    SAMPLE_COUNT,
+    SAMPLE_INTERVAL,
+    SETTLING_TIME,
+    DUT,
+    SAVE_PATH
+)
+
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 #needs pandas 2.3.3
@@ -21,15 +30,13 @@ V_START = 1.56
 V_STOP = 1.6
 V_STEP = 2.5e-3 #step should be <= 10mV
 
-I_COMPLIANCE = 100*10**-6 #measurement side
-
 
 HEADER = ["Vin", "mean_Vout", "status", "error"]
 def main():
 
     b1500 = AgilentB1500(
         GPIB_ADDRESS,
-        timeout = 100000
+        timeout = TIMEOUT
     )
 
     os.makedirs(SAVE_PATH, exist_ok=True)
@@ -47,7 +54,6 @@ def main():
     results, t_series = run_measurement(
         b1500=b1500,
         voltages=voltages,
-        I_compliance=I_COMPLIANCE,
         sample_count=SAMPLE_COUNT,
         sample_interval=SAMPLE_INTERVAL,
         settling_time=SETTLING_TIME
@@ -62,7 +68,8 @@ def run_measurement(
     sample_count,
     sample_interval,
     settling_time,
-    V_compliance = 0.5,
+    V_compliance = 4.99,
+    I_COMPLIANCE = 0.99*10**-6,
     ramp_pause= 50e-3,
     ramp_step = 5*10**-3
 ):
@@ -136,6 +143,7 @@ def run_measurement(
             
             data = b1500.read_data(sample_count*2).to_numpy()
             vout = data[:,1][1::2]
+            vout = vout[np.abs(vout) < 1e10] #not sure why get NANS... chekc ADC settings
             t = data[:,0][1::2]
             mean_vout = np.mean(vout)
             print(f"Average voltage out: {mean_vout:.4g} V")
@@ -164,7 +172,7 @@ def run_measurement(
             0,
             int(voltage/(ramp_step))
         ),decimals=4)
-        time.sleep(0.5)
+        time.sleep(0.1)
         for v in ramp_down:
             smu_force.force(
                 "Voltage",

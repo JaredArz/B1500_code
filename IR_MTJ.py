@@ -4,7 +4,15 @@ import time
 import traceback
 import warnings
 from datetime import datetime
-from exp_settings import *
+from exp_settings import (
+    GPIB_ADDRESS,
+    TIMEOUT,
+    SAMPLE_COUNT,
+    SAMPLE_INTERVAL,
+    SETTLING_TIME,
+    DUT,
+    SAVE_PATH
+)
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 #needs pandas 2.3.3
@@ -17,10 +25,10 @@ from pymeasure.instruments.agilent import AgilentB1500
 # run query.py to validate this.
 # HRSMU, only SMU2 works for now
 
-I_START = -170e-6
-I_STOP = -180e-6
+I_START = -112e-6
+I_STOP = -140e-6
 I_STEP = -0.5e-6
-#when sourcing current, compliance side measurement is voltage
+#when sourcing current, compliance side measurnbement is voltage
 V_COMPLIANCE = 3.6
 
 HEADER = ["current", "mean_v", "resistance", "status", "error"]
@@ -28,7 +36,7 @@ HEADER = ["current", "mean_v", "resistance", "status", "error"]
 def main():
     b1500 = AgilentB1500(
         GPIB_ADDRESS,
-        timeout = 100000
+        timeout = TIMEOUT
     )
 
     os.makedirs(SAVE_PATH, exist_ok=True)
@@ -60,11 +68,12 @@ def run_measurement(
     sample_count,
     sample_interval,
     settling_time,
-    ramp_pause=50e-3,
+    ramp_pause = 50e-3,
     ramp_step = 1e-6,
 ):
     if currents[0] < 0:
         ramp_step *= -1
+        print("Negative currents.")
     b1500.initialize_all_smus()
     b1500.data_format(21, mode=0)
     smu = list(b1500.smu_references)[1] #HRSMU
@@ -73,11 +82,11 @@ def run_measurement(
 
     b1500.meas_mode("SAMPLING", smu)
     smu.enable()
-    smu.adc_type = "HRADC"
-    smu.meas_range_voltage = "2 V"
+    smu.adc_type = "HSADC"
+    smu.meas_range_voltage = "5 V" #NOTE: range should be higher than compliance
     smu.meas_op_mode = "COMPLIANCE_SIDE"
     b1500.sampling_mode = "LINEAR"
-    b1500.adc_setup("HRADC", "AUTO", 6)
+    b1500.adc_setup("HSADC", "AUTO", 1)
 
     b1500.sampling_timing(
         settling_time,
@@ -90,11 +99,9 @@ def run_measurement(
     
     results = []
     t_series = np.empty((0,2))
-
     try:
-        #may need to be b1500.smu2....
         print("Ramping current...")
-        b1500.smu2.ramp_source(
+        smu.ramp_source(
             "CURRENT",
             "Auto Ranging",
             currents[0],
@@ -153,8 +160,8 @@ def run_measurement(
             HEADER[4]: error_message
         })
     finally:
-        time.sleep(0.5)
-        b1500.smu2.ramp_source(
+        time.sleep(0.1)
+        smu.ramp_source(
             "CURRENT",
             "Auto Ranging",
             0,

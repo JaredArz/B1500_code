@@ -11,9 +11,12 @@ from exp_settings import (
     SAMPLE_INTERVAL,
     SETTLING_TIME,
     DUT,
-    SAVE_PATH
+    SAVE_PATH,
+    I_START,
+    I_STOP,
+    I_STEP
 )
-
+# NOTE TIHS measurement assumes series resistance of 2.197K ohm
 warnings.filterwarnings("ignore", category=FutureWarning)
 #needs pandas 2.3.3
 
@@ -25,11 +28,9 @@ from pymeasure.instruments.agilent import AgilentB1500
 # run query.py to validate this.
 # HRSMU, only SMU2 works for now
 
-I_START = -112e-6
-I_STOP = -140e-6
-I_STEP = -0.5e-6
+
 #when sourcing current, compliance side measurnbement is voltage
-V_COMPLIANCE = 3.6
+V_COMPLIANCE = 1.4
 
 HEADER = ["current", "mean_v", "resistance", "status", "error"]
 
@@ -49,6 +50,7 @@ def main():
         I_START + (n_steps - 1) * I_STEP,
         n_steps
     )
+
 
     results, t_series = run_measurement(
         b1500=b1500,
@@ -83,7 +85,7 @@ def run_measurement(
     b1500.meas_mode("SAMPLING", smu)
     smu.enable()
     smu.adc_type = "HSADC"
-    smu.meas_range_voltage = "5 V" #NOTE: range should be higher than compliance
+    smu.meas_range_voltage = "2 V" #NOTE: range should be higher than compliance
     smu.meas_op_mode = "COMPLIANCE_SIDE"
     b1500.sampling_mode = "LINEAR"
     b1500.adc_setup("HSADC", "AUTO", 1)
@@ -187,11 +189,17 @@ def save_csv(filename, results, t_series):
         comments="",
         fmt="%s"
     )
+    metadata1 = np.full((t_series.shape[0],1),np.nan)
+    metadata2 = np.full((t_series.shape[0],1),np.nan)
+    metadata1[0,0] = SAMPLE_COUNT
+    metadata2[0,0] = SAMPLE_INTERVAL
+    t_series = np.hstack((t_series, metadata1))
+    t_series = np.hstack((t_series, metadata2))
     np.savetxt(
         filename + "_t.csv",
         t_series,
         delimiter=",",
-        header="t,Vout",
+        header="t,Vout,sample_count,sample_interval",
         comments=""
     )
     print(f"Measurement data saved to: {filename}")

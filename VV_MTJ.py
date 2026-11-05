@@ -11,7 +11,10 @@ from exp_settings import (
     SAMPLE_INTERVAL,
     SETTLING_TIME,
     DUT,
-    SAVE_PATH
+    SAVE_PATH,
+    V_START,
+    V_STOP,
+    V_STEP
 )
 
 
@@ -25,11 +28,7 @@ from pymeasure.instruments.agilent import AgilentB1500
 # SMU3: MPSMU
 # uses these in this exact configuration, no safety checks
 # run query.py to validate this.
-
-V_START = 1.56
-V_STOP = 1.6
-V_STEP = 2.5e-3 #step should be <= 10mV
-
+ 
 
 HEADER = ["Vin", "mean_Vout", "status", "error"]
 def main():
@@ -201,6 +200,12 @@ def save_csv(filename, results, t_series):
         comments="",
         fmt="%s"
     )
+    metadata1 = np.full((t_series.shape[0],1),np.nan)
+    metadata2 = np.full((t_series.shape[0],1),np.nan)
+    metadata1[0,0] = SAMPLE_COUNT
+    metadata2[0,0] = SAMPLE_INTERVAL
+    t_series = np.hstack((t_series, metadata1))
+    t_series = np.hstack((t_series, metadata2))
     np.savetxt(
         filename + "_t.csv",
         t_series,
